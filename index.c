@@ -138,35 +138,36 @@ int index_status(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
+    index->count = 0;  // 🔥 ALWAYS initialize
+
     FILE *f = fopen(".pes/index", "r");
-
-    if (!f) {
-        index->count = 0;
-        return 0;
-    }
-
-    index->count = 0;
+    if (!f) return 0;
 
     char mode_str[16], hash_hex[HASH_HEX_SIZE + 1], path[512];
     unsigned long long mtime;
     unsigned int size;
 
-    while (fscanf(f, "%15s %64s %llu %u %511[^\n]\n",
+    while (index->count < MAX_INDEX_ENTRIES &&
+           fscanf(f, "%15s %64s %llu %u %511[^\n]\n",
                   mode_str, hash_hex, &mtime, &size, path) == 5) {
 
         IndexEntry *e = &index->entries[index->count++];
 
         e->mode = strtol(mode_str, NULL, 8);
-        hex_to_hash(hash_hex, &e->hash);
+        if (hex_to_hash(hash_hex, &e->hash) < 0) {
+            fclose(f);
+            return -1;
+        }
         e->mtime_sec = mtime;
         e->size = size;
+
         strncpy(e->path, path, sizeof(e->path));
+        e->path[sizeof(e->path) - 1] = '\0';  // 🔥 ensure null-termination
     }
 
     fclose(f);
     return 0;
 }
-
 // Save the index to .pes/index atomically.
 //
 // HINTS - Useful functions and syscalls:
@@ -183,6 +184,9 @@ static int compare_index_entries(const void *a, const void *b) {
 }
 
 int index_save(const Index *index) {
+    if (index->count < 0 || index->count > MAX_INDEX_ENTRIES)
+        return -1;
+
     Index sorted = *index;
     qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_index_entries);
 
@@ -215,9 +219,15 @@ int index_save(const Index *index) {
     if (rename(tmp_path, ".pes/index") < 0)
         return -1;
 
+    // 🔥 fsync directory (important for atomicity)
+    int dfd = open(".pes", O_DIRECTORY);
+    if (dfd >= 0) {
+        fsync(dfd);
+        close(dfd);
+    }
+
     return 0;
 }
-
 // Stage a file for the next commit.
 //
 // HINTS - Useful functions and syscalls:
@@ -237,17 +247,22 @@ int index_add(Index *index, const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
 
-    void *data = malloc(st.st_size);
-    if (!data) {
-        fclose(f);
-        return -1;
+    void *data = NULL;
+
+    if (st.st_size > 0) {
+        data = malloc(st.st_size);
+        if (!data) {
+            fclose(f);
+            return -1;
+        }
+
+        if (fread(data, 1, st.st_size, f) != (size_t)st.st_size) {
+            fclose(f);
+            free(data);
+            return -1;
+        }
     }
 
-    if (fread(data, 1, st.st_size, f) != (size_t)st.st_size) {
-        fclose(f);
-        free(data);
-        return -1;
-    }
     fclose(f);
 
     ObjectID hash;
@@ -261,7 +276,8 @@ int index_add(Index *index, const char *path) {
     IndexEntry *e = index_find(index, path);
 
     if (!e) {
-        if (index->count >= MAX_INDEX_ENTRIES) return -1;
+        if (index->count >= MAX_INDEX_ENTRIES)
+            return -1;
         e = &index->entries[index->count++];
     }
 
@@ -269,7 +285,9 @@ int index_add(Index *index, const char *path) {
     e->hash = hash;
     e->mtime_sec = st.st_mtime;
     e->size = st.st_size;
+
     strncpy(e->path, path, sizeof(e->path));
+    e->path[sizeof(e->path) - 1] = '\0';  // 🔥 critical fix
 
     return index_save(index);
 }
