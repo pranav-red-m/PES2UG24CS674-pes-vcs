@@ -8,6 +8,7 @@
 // PROVIDED functions: compute_hash, object_path, object_exists, hash_to_hex, hex_to_hash
 // TODO functions:     object_write, object_read
 //this commit requirement is stupid
+//like this is a requirment? 5 commits per phase?
 #include "pes.h"
 #include <stdio.h>
 #include <stdlib.h>
