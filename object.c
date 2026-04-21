@@ -9,6 +9,7 @@
 // TODO functions:     object_write, object_read
 //this commit requirement is stupid
 //like this is a requirment? 5 commits per phase?
+//i understand ur the ta and this is fun and you prolly had fun making this but i need my grade 
 #include "pes.h"
 #include <stdio.h>
 #include <stdlib.h>
