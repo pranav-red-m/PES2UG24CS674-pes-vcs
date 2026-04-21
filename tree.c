@@ -8,9 +8,7 @@
 //
 // Example single entry (conceptual):
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
-// loremipsum
-//doremipsum
-//its clobbering time
+
 #include "tree.h"
 #include "index.h"
 #include <stdio.h>
@@ -132,88 +130,34 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
-static int starts_with(const char *str, const char *prefix) {
-    return strncmp(str, prefix, strlen(prefix)) == 0;
-}
+int tree_from_index(ObjectID *id_out) {
+    Index index;
 
-static int write_tree_level(IndexEntry *entries, int count, const char *prefix, ObjectID *out_id) {
-    Tree tree = {0};
+    if (index_load(&index) < 0) return -1;
 
-    char seen_dirs[256][256];
-    int seen_count = 0;
+    Tree tree;
+    tree.count = 0;
 
-    size_t prefix_len = strlen(prefix);
+    for (int i = 0; i < index.count; i++) {
+        IndexEntry *ie = &index.entries[i];
 
-    for (int i = 0; i < count; i++) {
-        const char *path = entries[i].path;
+        TreeEntry *te = &tree.entries[tree.count++];
 
-        if (!starts_with(path, prefix)) continue;
+        te->mode = ie->mode;
+        te->hash = ie->hash;
 
-        const char *rest = path + prefix_len;
-        if (*rest == '\0') continue;
+        const char *name = strrchr(ie->path, '/');
+        if (name) name++; else name = ie->path;
 
-        const char *slash = strchr(rest, '/');
-
-        if (!slash) {
-            // File at this level
-            TreeEntry *e = &tree.entries[tree.count++];
-            strcpy(e->name, rest);
-            e->mode = entries[i].mode;
-            e->hash = entries[i].hash;
-        } else {
-            // Directory
-            size_t dir_len = slash - rest;
-
-            char dirname[256];
-            strncpy(dirname, rest, dir_len);
-            dirname[dir_len] = '\0';
-
-            // Avoid duplicate processing
-            int seen = 0;
-            for (int j = 0; j < seen_count; j++) {
-                if (strcmp(seen_dirs[j], dirname) == 0) {
-                    seen = 1;
-                    break;
-                }
-            }
-            if (seen) continue;
-
-            strcpy(seen_dirs[seen_count++], dirname);
-
-            char new_prefix[512];
-            snprintf(new_prefix, sizeof(new_prefix), "%s%s/", prefix, dirname);
-
-            ObjectID sub_id;
-            if (write_tree_level(entries, count, new_prefix, &sub_id) < 0)
-                return -1;
-
-            TreeEntry *e = &tree.entries[tree.count++];
-            strcpy(e->name, dirname);
-            e->mode = MODE_DIR;
-            e->hash = sub_id;
-        }
+        strncpy(te->name, name, sizeof(te->name));
     }
 
     void *data;
     size_t len;
+    if (tree_serialize(&tree, &data, &len) < 0) return -1;
 
-    if (tree_serialize(&tree, &data, &len) < 0)
-        return -1;
-
-    if (object_write(OBJ_TREE, data, len, out_id) < 0) {
-        free(data);
-        return -1;
-    }
+    int rc = object_write(OBJ_TREE, data, len, id_out);
 
     free(data);
-    return 0;
-}
-
-int tree_from_index(ObjectID *id_out) {
-    Index index;
-
-    if (index_load(&index) < 0)
-        return -1;
-
-    return write_tree_level(index.entries, index.count, "", id_out);
+    return rc;
 }
