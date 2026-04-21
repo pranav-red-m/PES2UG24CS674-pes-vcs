@@ -205,9 +205,12 @@ static int write_tree_level(IndexEntry *entries, int count, const char *prefix, 
     free(data);
     return 0;
 }
+
 int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
-    return -1;
+    Index index;
+
+    if (index_load(&index) < 0)
+        return -1;
+
+    return write_tree_level(index.entries, index.count, "", id_out);
 }
