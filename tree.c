@@ -10,6 +10,7 @@
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 // loremipsum
 //doremipsum
+//its clobbering time
 #include "tree.h"
 #include "index.h"
 #include <stdio.h>
